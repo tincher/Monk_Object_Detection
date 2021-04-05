@@ -4,13 +4,13 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from src.dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
-from src.model import EfficientDet
+from dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
+from model import EfficientDet
 from tensorboardX import SummaryWriter
 import shutil
 import numpy as np
 from tqdm.autonotebook import tqdm
-from src.config import colors
+from config import colors
 import cv2
 import time as time
 
@@ -32,7 +32,7 @@ class Infer():
 
         if not os.path.exists(output_folder):
             os.makedirs(output_folder)
-        
+
         image_filename = os.path.basename(img_path)
         img = cv2.imread(img_path);
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB);
@@ -54,45 +54,47 @@ class Infer():
         new_image[0:resized_height, 0:resized_width] = image
 
         img = torch.from_numpy(new_image)
-        
+
         t0 = time.time()
         with torch.no_grad():
             scores, labels, boxes = self.system_dict["local"]["model"](img.cuda().permute(2, 0, 1).float().unsqueeze(dim=0))
             boxes /= scale;
         duration = time.time() - t0
-        print('Done. (%.3fs)' % (time.time() - t0))
+#         print('Done. (%.3fs)' % (time.time() - t0))
 
 
-        try:
-            if boxes.shape[0] > 0:
-                output_image = cv2.imread(img_path)
+#         try:
+        if boxes.shape[0] > 0:
+            output_image = cv2.imread(img_path)
 
-                for box_id in range(boxes.shape[0]):
-                    pred_prob = float(scores[box_id])
-                    if pred_prob < vis_threshold:
-                        break
-                    pred_label = int(labels[box_id])
-                    xmin, ymin, xmax, ymax = boxes[box_id, :]
-                    color = colors[pred_label]
-                    cv2.rectangle(output_image, (xmin, ymin), (xmax, ymax), color, 2)
-                    text_size = cv2.getTextSize(class_list[pred_label] + ' : %.2f' % pred_prob, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
+            for box_id in range(boxes.shape[0]):
+                pred_prob = float(scores[box_id])
+                if pred_prob < vis_threshold:
+                    break
+                pred_label = int(labels[box_id])
+                xmin, ymin, xmax, ymax = map(int, boxes[box_id, :])
+                color = colors[pred_label]
+                cv2.rectangle(output_image, (xmin, ymin), (xmax, ymax), color, 2)
+                text_size = cv2.getTextSize(class_list[pred_label] + ' : %.2f' % pred_prob, cv2.FONT_HERSHEY_PLAIN, 1, 1)[0]
 
-                    cv2.rectangle(output_image, (xmin, ymin), (xmin + text_size[0] + 3, ymin + text_size[1] + 4), color, -1)
-                    cv2.putText(
-                        output_image, class_list[pred_label] + ' : %.2f' % pred_prob,
-                        (xmin, ymin + text_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1,
-                        (255, 255, 255), 1)
+                cv2.rectangle(output_image, (xmin, ymin), (xmin + text_size[0] + 3, ymin + text_size[1] + 4), color, -1)
+                cv2.putText(
+                    output_image, class_list[pred_label] + ' : %.2f' % pred_prob,
+                    (xmin, ymin + text_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1,
+                    (255, 255, 255), 1)
 
             cv2.imwrite(os.path.join(output_folder, image_filename), output_image)
             cv2.imwrite("output.jpg", output_image)
             return duration, scores, labels, boxes
-        
-        except:
-            print("NO Object Detected")
-            return None
+        return None
+
+#         except Exception as e:
+#             print(e)
+#             print("NO Object Detected")
+#             return None
 
     def predict_batch_of_images(self, img_folder, class_list, vis_threshold = 0.4, output_folder='Inference'):
-        
+
         all_filenames = os.listdir(img_folder)
         all_filenames.sort()
         generated_count = 0
@@ -104,5 +106,3 @@ class Infer():
             except:
                 continue
         print("Objects detected  for {} images".format(generated_count))
-
-        

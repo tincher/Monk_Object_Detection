@@ -2,8 +2,8 @@ import torch.nn as nn
 import torch
 import math
 from efficientnet_pytorch import EfficientNet as EffNet
-from src.utils import BBoxTransform, ClipBoxes, Anchors
-from src.loss import FocalLoss
+from utils import BBoxTransform, ClipBoxes, Anchors
+from loss import FocalLoss
 from torchvision.ops.boxes import nms as nms_torch
 
 
@@ -248,7 +248,7 @@ class EfficientDet(nn.Module):
                 m.eval()
 
     def forward(self, inputs):
-        if len(inputs) == 2:
+        if isinstance(inputs, list) and len(inputs) == 2:
             is_training = True
             img_batch, annotations = inputs
         else:

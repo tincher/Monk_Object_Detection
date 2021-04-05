@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from torchvision import transforms
-from src.dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
-from src.model import EfficientDet
+from dataset import CocoDataset, Resizer, Normalizer, Augmenter, collater
+from model import EfficientDet
 from tensorboardX import SummaryWriter
 import shutil
 import numpy as np
@@ -72,8 +72,8 @@ class Detector():
                                                             img_dir = self.system_dict["dataset"]["train"]["img_dir"],
                                                             set_dir = self.system_dict["dataset"]["train"]["set_dir"],
                                                             transform = transforms.Compose([Normalizer(), Augmenter(), Resizer()]))
-        
-        self.system_dict["local"]["training_generator"] = DataLoader(self.system_dict["local"]["training_set"], 
+
+        self.system_dict["local"]["training_generator"] = DataLoader(self.system_dict["local"]["training_set"],
                                                                     **self.system_dict["local"]["training_params"]);
 
 
@@ -82,7 +82,7 @@ class Detector():
         self.system_dict["dataset"]["val"]["root_dir"] = root_dir;
         self.system_dict["dataset"]["val"]["coco_dir"] = coco_dir;
         self.system_dict["dataset"]["val"]["img_dir"] = img_dir;
-        self.system_dict["dataset"]["val"]["set_dir"] = set_dir;     
+        self.system_dict["dataset"]["val"]["set_dir"] = set_dir;
 
         self.system_dict["local"]["val_params"] = {"batch_size": self.system_dict["params"]["batch_size"],
                                                    "shuffle": False,
@@ -90,16 +90,16 @@ class Detector():
                                                    "collate_fn": collater,
                                                    "num_workers": self.system_dict["params"]["num_workers"]}
 
-        self.system_dict["local"]["val_set"] = CocoDataset(root_dir=self.system_dict["dataset"]["val"]["root_dir"] + "/" + self.system_dict["dataset"]["val"]["coco_dir"], 
+        self.system_dict["local"]["val_set"] = CocoDataset(root_dir=self.system_dict["dataset"]["val"]["root_dir"] + "/" + self.system_dict["dataset"]["val"]["coco_dir"],
                                                     img_dir = self.system_dict["dataset"]["val"]["img_dir"],
                                                     set_dir = self.system_dict["dataset"]["val"]["set_dir"],
                                                     transform=transforms.Compose([Normalizer(), Resizer()]))
-        
-        self.system_dict["local"]["test_generator"] = DataLoader(self.system_dict["local"]["val_set"], 
+
+        self.system_dict["local"]["test_generator"] = DataLoader(self.system_dict["local"]["val_set"],
                                                                 **self.system_dict["local"]["val_params"])
 
 
-    def Model(self,gpu_devices=[0]):
+    def Model(self,gpu_devices=[0], saved_model_dir=None):
         num_classes = self.system_dict["local"]["training_set"].num_classes();
         efficientdet = EfficientDet(num_classes=num_classes)
 
@@ -112,8 +112,13 @@ class Detector():
             self.system_dict["local"]["device"] = 'cuda' if torch.cuda.is_available() else 'cpu'
             efficientdet = efficientdet.to(self.system_dict["local"]["device"])
             efficientdet= torch.nn.DataParallel(efficientdet).to(self.system_dict["local"]["device"])
-
+        
         self.system_dict["local"]["model"] = efficientdet;
+        if saved_model_dir is not None:
+            self.system_dict["local"]["model"] = torch.load(os.path.join(saved_model_dir + "/signatrix_efficientdet_coco.pth")).module
+            
+        
+        
         self.system_dict["local"]["model"].train();
 
 
@@ -124,10 +129,10 @@ class Detector():
         self.system_dict["params"]["es_patience"] = es_patience;
 
 
-        self.system_dict["local"]["optimizer"] = torch.optim.Adam(self.system_dict["local"]["model"].parameters(), 
+        self.system_dict["local"]["optimizer"] = torch.optim.Adam(self.system_dict["local"]["model"].parameters(),
                                                                     self.system_dict["params"]["lr"]);
 
-        self.system_dict["local"]["scheduler"] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.system_dict["local"]["optimizer"], 
+        self.system_dict["local"]["scheduler"] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.system_dict["local"]["optimizer"],
                                                                     patience=3, verbose=True)
 
 
@@ -149,7 +154,7 @@ class Detector():
         num_iter_per_epoch = len(self.system_dict["local"]["training_generator"])
 
         if(self.system_dict["dataset"]["val"]["status"]):
-            
+
             for epoch in range(self.system_dict["params"]["num_epochs"]):
                 self.system_dict["local"]["model"].train()
 
@@ -173,7 +178,7 @@ class Detector():
                         self.system_dict["local"]["optimizer"].step()
                         epoch_loss.append(float(loss))
                         total_loss = np.mean(epoch_loss)
-                        print( 
+                        print(
                             'Epoch: {}/{}. Iteration: {}/{}. Cls loss: {:.5f}. Reg loss: {:.5f}. Batch loss: {:.5f} Total loss: {:.5f}'.format(
                                 epoch + 1, self.system_dict["params"]["num_epochs"], iter + 1, num_iter_per_epoch, cls_loss, reg_loss, loss,
                                 total_loss))
@@ -223,7 +228,7 @@ class Detector():
                     if loss + self.system_dict["params"]["es_min_delta"] < self.system_dict["output"]["best_loss"]:
                         self.system_dict["output"]["best_loss"] = loss
                         self.system_dict["output"]["best_epoch"] = epoch
-                        torch.save(self.system_dict["local"]["model"], 
+                        torch.save(self.system_dict["local"]["model"],
                             os.path.join(self.system_dict["output"]["saved_path"], "signatrix_efficientdet_coco.pth"))
 
                         dummy_input = torch.rand(1, 3, 512, 512)
@@ -254,7 +259,6 @@ class Detector():
         else:
             for epoch in range(self.system_dict["params"]["num_epochs"]):
                 self.system_dict["local"]["model"].train()
-
                 epoch_loss = []
                 progress_bar = tqdm(self.system_dict["local"]["training_generator"])
                 for iter, data in enumerate(progress_bar):
@@ -289,8 +293,10 @@ class Detector():
                         continue
                 self.system_dict["local"]["scheduler"].step(np.mean(epoch_loss))
 
-
-                torch.save(self.system_dict["local"]["model"], 
+                os.mkdir(os.path.join(self.system_dict["output"]["saved_path"], str(epoch)))
+                torch.save(self.system_dict["local"]["model"],
+                    os.path.join(self.system_dict["output"]["saved_path"], str(epoch), "signatrix_efficientdet_coco.pth"))
+                torch.save(self.system_dict["local"]["model"],
                     os.path.join(self.system_dict["output"]["saved_path"], "signatrix_efficientdet_coco.pth"))
 
                 dummy_input = torch.rand(1, 3, 512, 512)
@@ -301,7 +307,7 @@ class Detector():
 
                     try:
                         torch.onnx.export(self.system_dict["local"]["model"].module, dummy_input,
-                                          os.path.join(self.system_dict["output"]["saved_path"], "signatrix_efficientdet_coco.onnx"),
+                                          os.path.join(self.system_dict["output"]["saved_path"], str(epoch), "signatrix_efficientdet_coco.onnx"),
                                           verbose=False,
                                           opset_version=11)
                     except:
